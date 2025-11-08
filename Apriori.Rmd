@@ -1,0 +1,70 @@
+---
+title: "Proyecto"
+author: "Linda Morales"
+date: "2025-11-08"
+output: html_document
+---
+#Procedemos a la instalacion de librerias:
+```{r}
+install.packages("arules", type ="binary")
+library(arules)
+install.packages("readxl")
+library(readxl)
+search()
+ls("package:readxl")
+library(dplyr)
+```
+#Vamos a leer todos los documentos, desde el año 2018 hasta el 2024 
+```{r}
+dt2018 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2018.xlsx")
+dt2019 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2019.xlsx")
+dt2020 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2020.xlsx")
+dt2021 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2021.xlsx")
+dt2022 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2022.xlsx")
+dt2023 <- readxl::read_excel("C:/Users/DELL/Downloads/mp-sindicados-2023.xlsx")
+dt2024 <- readxl::read_excel("C:/Users/DELL/Downloads/base-de-datos-mp-sindicados-2024.xlsx")
+```
+#Para revisar los nombres de las columnas
+```{r}
+colnames(dt2018)
+colnames(dt2019)
+colnames(dt2020)
+colnames(dt2021)
+colnames(dt2022)
+colnames(dt2023)
+colnames(dt2024)
+```
+
+#Renombrar y seleccionar solo las comunes: Alineamiento de columnas. ya que no son iguales en todos los años:
+```{r}
+estandarizar <- function(df, sexo, edad, grupo_edad, depto, zona, delito) {
+  df %>%
+    rename(
+      sexo = {{sexo}},
+      edad = {{edad}},
+      grupo_edad = {{grupo_edad}},
+      depto = {{depto}},
+      zona = {{zona}},
+      delito = {{delito}}
+    ) %>%
+    select(sexo, edad, grupo_edad, depto, zona, delito)
+}
+
+# Ejemplo para 2024
+dt2024 <- estandarizar(dt2024, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, principales_delitos)
+dt2023 <- estandarizar(dt2023, sexo_per, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, principales_delitos)
+dt2022 <- estandarizar(dt2022, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, delito_com)
+dt2021 <- estandarizar(dt2021, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, delito_com)
+dt2020 <- estandarizar(dt2020, sexo_sindicados, edad_sind, g_edad_60ymás, depto_ocu_hecho, zona_ocu_hecho, delito_cod)
+dt2019 <- estandarizar(dt2019, sexo_sindicados, edad_sind, g_edad_60ymás, depto_ocu, zona_ocu, delito_com)
+dt2018 <- estandarizar(dt2018, sexo_sindicados, edad_per, g_edad_60ymas, depto_ocu, zona_ocu, delito_com)
+```
+
+#Unificando todos los dataset:
+```{r}
+datos <- bind_rows(dt2018, dt2019, dt2020, dt2021, dt2022, dt2023, dt2024)
+```
+
+
+
+

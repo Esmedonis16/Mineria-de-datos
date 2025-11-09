@@ -4,8 +4,11 @@ author: "Linda Morales"
 date: "2025-11-08"
 output: html_document
 ---
-#Procedemos a la instalacion de librerias:
+
+### Procedemos a la instalación de librerías:
+
 ```{r}
+install.packages("rmarkdown")
 install.packages("arules", type ="binary")
 library(arules)
 install.packages("readxl")
@@ -14,7 +17,9 @@ search()
 ls("package:readxl")
 library(dplyr)
 ```
-#Vamos a leer todos los documentos, desde el año 2018 hasta el 2024 
+
+### Leemos todos los documentos, desde el año 2018 hasta el 2024
+
 ```{r}
 dt2018 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2018.xlsx")
 dt2019 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2019.xlsx")
@@ -24,7 +29,9 @@ dt2022 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2022.xlsx"
 dt2023 <- readxl::read_excel("C:/Users/DELL/Downloads/mp-sindicados-2023.xlsx")
 dt2024 <- readxl::read_excel("C:/Users/DELL/Downloads/base-de-datos-mp-sindicados-2024.xlsx")
 ```
-#Para revisar los nombres de las columnas
+
+### Revisamos los nombres de las columnas
+
 ```{r}
 colnames(dt2018)
 colnames(dt2019)
@@ -35,7 +42,8 @@ colnames(dt2023)
 colnames(dt2024)
 ```
 
-#Renombrar y seleccionar solo las comunes: Alineamiento de columnas. ya que no son iguales en todos los años:
+### Renombramos y seleccionamos solo las columnas comunes: Alineamiento de columnas, ya que no son iguales en todos los años las estandarizamos:
+
 ```{r}
 estandarizar <- function(df, sexo, edad, grupo_edad, depto, zona, delito) {
   df %>%
@@ -50,7 +58,6 @@ estandarizar <- function(df, sexo, edad, grupo_edad, depto, zona, delito) {
     select(sexo, edad, grupo_edad, depto, zona, delito)
 }
 
-# Ejemplo para 2024
 dt2024 <- estandarizar(dt2024, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, principales_delitos)
 dt2023 <- estandarizar(dt2023, sexo_per, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, principales_delitos)
 dt2022 <- estandarizar(dt2022, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, delito_com)
@@ -60,11 +67,132 @@ dt2019 <- estandarizar(dt2019, sexo_sindicados, edad_sind, g_edad_60ymás, depto
 dt2018 <- estandarizar(dt2018, sexo_sindicados, edad_per, g_edad_60ymas, depto_ocu, zona_ocu, delito_com)
 ```
 
-#Unificando todos los dataset:
+### Unificamos todos los dataset:
+
 ```{r}
 datos <- bind_rows(dt2018, dt2019, dt2020, dt2021, dt2022, dt2023, dt2024)
+colnames(datos)
 ```
 
+## Preparamos los datos para Apriori
+
+#### Antes de aplicar Apriori, necesitamos transformar los datos al tipo que espera el algoritmo: **transacciones**.
+
+```{r}
+# Convertimos las variables a tipo factor (requisito para 'transactions')
+datos[] <- lapply(datos, as.factor)
+
+# Convertimos el tibble a data.frame clásico
+datos_df <- as.data.frame(datos)
+
+# Lo transformamos en transacciones
+datos_trans <- as(datos_df, "transactions")
+
+# Resumen de las transacciones
+summary(datos_trans)
+```
+
+## Aplicamos el algoritmo Apriori
+
+```{r}
+# Aplicamos Apriori con soporte mínimo del 1% y confianza mínima del 50%
+reglas <- apriori(datos_trans, parameter = list(supp = 0.01, conf = 0.5))
 
 
+```
 
+#### El algoritmo **Apriori** ha funcionado correctamente y ha generado:
+
+-   **1264 reglas de asociación**
+
+-   A partir de **66 ítems**
+
+-   Sobre **3,012,419 transacciones**
+
+### Filtrar reglas con lift alto (mayor a 1.2) para encontrar asociaciones fuertes:
+
+```{r}
+# Filtrar reglas con lift > 1.2
+reglas_interesantes <- subset(reglas, lift > 1.2)
+
+# Ver las 10 primeras reglas
+inspect(reglas_interesantes[1:10])
+
+```
+
+### Opción 1: Reglas de Asociación Interesantes con Apriori
+
+Para este análisis, se utilizaron datos de denuncias del MP entre 2018 y 2024. Se aplicó el algoritmo Apriori para encontrar **reglas de asociación relevantes**, que ayuden a **entender patrones delictivos** en Guatemala.
+
+De un total de **1,264 reglas generadas**, se filtraron aquellas con `lift > 1.2` para enfocarnos en relaciones **más fuertes que el azar**. A continuación, se presentan 4 reglas interesantes:
+
+#### Regla 1: `{zona=11} => {depto=1}`
+
+-   **support**: 0.013
+-   **confidence**: 1.0
+-   **lift**: \> 1.2
+
+**Interpretación**:\
+Todas las denuncias registradas en la **zona 11** están asociadas al **departamento 1**, "Guatemala".
+
+**Importancia**:\
+Ayuda a identificar zonas urbanas específicas que requieren **mayor presencia policial o intervenciones focalizadas**.
+
+#### Regla 2: `{edad=35} => {grupo_edad=6}`
+
+-   **support**: 0.0108
+-   **confidence**: 1.0
+-   **lift**: \> 1.2
+
+```{r}
+# Ver las edades reales que caen en el grupo 6
+datos %>% 
+  filter(grupo_edad == 6) %>% 
+  count(edad) %>% 
+  arrange(edad)
+
+```
+
+**Interpretación**:\
+Las personas con **edad entre 35 a 39** están correctamente clasificadas dentro del **grupo etario 6**.
+
+**Importancia**:\
+Confirma una correcta codificación de edades. Aporta **fiabilidad al resto del análisis** que depende de esta variable agrupada.
+
+#### Regla 3: `{delito=166} => {edad=999}`
+
+-   **support**: 0.0109\
+-   **confidence**: 0.934\
+-   **lift**: \> 1.2
+
+**Interpretación**:\
+La mayoría de las denuncias por el delito **166** tienen **edad desconocida** (`999`).
+
+**Importancia**:\
+Puede indicar un **problema recurrente en la recolección de datos**, lo que limita la identificación del perfil de la víctima o victimario.
+
+#### Regla 4: `{grupo_edad=4} => {delito=1}`
+
+-   **support**: 0.0114\
+-   **confidence**: 0.90\
+-   **lift**: \> 1.2
+
+```{r}
+# Ver las edades reales que caen en el grupo 4
+datos %>% 
+  filter(grupo_edad == 4) %>% 
+  count(edad) %>% 
+  arrange(edad)
+```
+
+**Interpretación**:\
+Personas en el **grupo etario 4** (edades de 25 a 29) presentan una fuerte asociación con el **delito 1**.
+
+**Importancia**:\
+Permite detectar grupos poblacionales más expuestos a ciertos delitos. Esto puede orientar **campañas de prevención específicas**.
+
+### Conclusión
+
+Estas reglas muestran cómo el análisis de asociaciones permite **detectar patrones útiles para la toma de decisiones**, como: - focalización de zonas, - verificación de calidad de datos, - identificación de poblaciones vulnerables.
+
+El uso del algoritmo Apriori resulta valioso para **comprender fenómenos complejos** como la delincuencia en Guatemala.

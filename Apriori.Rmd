@@ -120,9 +120,9 @@ inspect(reglas_interesantes[1:10])
 
 ```
 
-### Opción 1: Reglas de Asociación Interesantes con Apriori
+### Reglas de asociación seleccionadas con Apriori
 
-Para este análisis, se utilizaron datos de denuncias del MP entre 2018 y 2024. Se aplicó el algoritmo Apriori para encontrar **reglas de asociación relevantes**, que ayuden a **entender patrones delictivos** en Guatemala.
+Para este análisis, se utilizaron datos de denuncias del MP entre 2018 y 2024. Se aplicó el algoritmo Apriori para encontrar reglas de asociación relevantes, que ayuden a entender patrones delictivos en Guatemala.
 
 De un total de **1,264 reglas generadas**, se filtraron aquellas con `lift > 1.2` para enfocarnos en relaciones **más fuertes que el azar**. A continuación, se presentan 4 reglas interesantes:
 

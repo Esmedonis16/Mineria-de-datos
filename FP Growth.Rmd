@@ -1,0 +1,267 @@
+---
+title: "FP Growth"
+author: "Linda Morales"
+date: "2025-11-09"
+output: pdf_document
+---
+
+### Procedemos a la instalación de librerías:
+
+```{r}
+install.packages("rmarkdown")
+install.packages("arules", type ="binary")
+library(arules)
+install.packages("readxl")
+library(readxl)
+search()
+ls("package:readxl")
+install.packages(c("dplyr","purrr","tibble"))
+
+```
+
+### Leemos todos los documentos, desde el año 2018 hasta el 2024
+
+```{r}
+dt2018 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2018.xlsx")
+dt2019 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2019.xlsx")
+dt2020 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2020.xlsx")
+dt2021 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2021.xlsx")
+dt2022 <- readxl::read_excel("C:/Users/DELL/Downloads/2-sindicados-mp-2022.xlsx")
+dt2023 <- readxl::read_excel("C:/Users/DELL/Downloads/mp-sindicados-2023.xlsx")
+dt2024 <- readxl::read_excel("C:/Users/DELL/Downloads/base-de-datos-mp-sindicados-2024.xlsx")
+```
+
+### Revisamos los nombres de las columnas
+
+```{r}
+colnames(dt2018)
+colnames(dt2019)
+colnames(dt2020)
+colnames(dt2021)
+colnames(dt2022)
+colnames(dt2023)
+colnames(dt2024)
+```
+
+### Renombramos y seleccionamos solo las columnas comunes: Alineamiento de columnas, ya que no son iguales en todos los años las estandarizamos:
+
+```{r}
+estandarizar <- function(df, sexo, edad, grupo_edad, depto, zona, delito) {
+  df %>%
+    rename(
+      sexo = {{sexo}},
+      edad = {{edad}},
+      grupo_edad = {{grupo_edad}},
+      depto = {{depto}},
+      zona = {{zona}},
+      delito = {{delito}}
+    ) %>%
+    select(sexo, edad, grupo_edad, depto, zona, delito)
+}
+
+dt2024 <- estandarizar(dt2024, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, principales_delitos)
+dt2023 <- estandarizar(dt2023, sexo_per, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, principales_delitos)
+dt2022 <- estandarizar(dt2022, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, delito_com)
+dt2021 <- estandarizar(dt2021, sexo_sindicados, edad_sind, g_edad_60ymas, depto_ocu_hecho, zona_ocu_hecho, delito_com)
+dt2020 <- estandarizar(dt2020, sexo_sindicados, edad_sind, g_edad_60ymás, depto_ocu_hecho, zona_ocu_hecho, delito_cod)
+dt2019 <- estandarizar(dt2019, sexo_sindicados, edad_sind, g_edad_60ymás, depto_ocu, zona_ocu, delito_com)
+dt2018 <- estandarizar(dt2018, sexo_sindicados, edad_per, g_edad_60ymas, depto_ocu, zona_ocu, delito_com)
+```
+
+### Unificamos todos los dataset:
+
+```{r}
+datos <- bind_rows(dt2018, dt2019, dt2020, dt2021, dt2022, dt2023, dt2024)
+```
+
+# Instalación y conexión a Spark
+
+```{r}
+library(sparklyr)
+spark_install(version = "3.5.0")  # Solo la primera vez
+sc <- spark_connect(master = "local", version = "3.5.0")
+
+```
+
+## Preparamos los datos desde el `data.frame` unificado
+
+```{r}
+library(dplyr)
+
+# Usamos solo columnas categóricas que tienen sentido para asociación
+datos_fp <- datos %>%
+  select(sexo, edad, grupo_edad, depto, zona, delito)
+
+```
+
+## Convertimos los datos a “baskets” (cestas)
+
+El formato que FP-Growth espera es tipo: ["sexo=12", "grupo_edad=6", "depto=1"]
+
+Entonces creamos una lista donde cada fila representa una persona y sus atributos en formato clave=valor.
+
+```{r}
+library(purrr)
+library(tibble)
+
+to_baskets <- function(df) {
+  df_chr <- df %>% mutate(across(everything(), as.character))
+  items_list <- map(seq_len(nrow(df_chr)), function(i) {
+    vv <- as.character(df_chr[i, , drop = FALSE][1, ])
+    nn <- names(df_chr)
+    ok <- !is.na(vv) & nzchar(vv)
+    paste(nn[ok], vv[ok], sep = "=")
+  })
+  tibble(id = seq_len(nrow(df_chr)), items = items_list)
+}
+
+baskets_all <- to_baskets(datos_fp)
+n_trans <- nrow(baskets_all)  # número de transacciones
+
+```
+
+## Ejecutamos FP-Growth en Spark
+
+```{r}
+
+# Tomar una muestra del 10% para probar, ya que 3M se tarda demasiado en analizar :( y estoy en contra del tiempo.  
+set.seed(123)
+baskets_sample <- baskets_all %>% slice_sample(prop = 0.1)
+
+
+# Subir la muestra a Spark
+sdf_sample <- sdf_copy_to(sc, baskets_sample, "baskets_sample", overwrite = TRUE)
+
+min_support    <- 0.20
+min_confidence <- 0.50
+
+model_all <- ml_fpgrowth(
+  sdf_sample,
+  items_col      = "items",
+  min_support    = min_support,
+  min_confidence = min_confidence
+)
+
+```
+
+## Extraemos reglas generadas
+
+```{r}
+# Extraer ítems frecuentes y reglas
+freq_all  <- tryCatch(ml_freq_itemsets(model_all) %>% collect(), error = function(e) NULL)
+rules_raw <- tryCatch(ml_association_rules(model_all) %>% collect(), error = function(e) NULL)
+
+# Verificamos si se generaron reglas
+if (!is.null(rules_raw) && nrow(rules_raw) > 0) {
+  
+  # Convertimos antecedente y consecuente en texto legible
+  lhs_str <- purrr::map_chr(rules_raw$antecedent, ~ paste(.x, collapse = ", "))
+  rhs_str <- purrr::map_chr(rules_raw$consequent, ~ paste(.x, collapse = ", "))
+  
+  # Armamos el tibble con las reglas
+  rules_df <- tibble::tibble(
+    rules      = paste0("{", lhs_str, "} => {", rhs_str, "}"),
+    support    = rules_raw$support,
+    confidence = rules_raw$confidence,
+    lift       = rules_raw$lift,
+    count      = round(rules_raw$support * n_trans)
+  )
+  
+  # --- RESUMEN ESTADÍSTICO GENERAL
+  n_items <- baskets_all$items |> unlist(use.names = FALSE) |> unique() |> length()
+  n_rules <- nrow(rules_df)
+
+  cat("\n **Resumen del Modelo FP-Growth**\n")
+  cat("─────────────────────────────────────────────\n")
+  cat(sprintf(" Número total de transacciones:  %d\n", n_trans))
+  cat(sprintf(" Número total de ítems únicos:   %d\n", n_items))
+  cat(sprintf(" Número total de reglas:         %d\n", n_rules))
+  cat(sprintf(" Parámetros usados: soporte = %.2f | confianza = %.2f\n", 
+              min_support, min_confidence))
+  cat("─────────────────────────────────────────────\n\n")
+  
+
+  # Ver todas las reglas
+  View(rules_df)
+
+} else {
+  cat("❌ No se generaron reglas. Prueba con valores más bajos de soporte/confianza.\n")
+}
+
+```
+
+## Cerrar conexión con Spark
+
+```{r}
+spark_disconnect(sc)
+```
+
+# Método 2: Reglas de asociación con FP-Growth en Spark
+
+### ¿Qué hicimos?
+
+Aplicamos el algoritmo **FP-Growth** usando el motor de cálculo **Spark** (a través del paquete `sparklyr`) para descubrir **patrones frecuentes** en nuestros datos unificados del 2018 al 2024.
+
+## Interpretación de las 4 reglas más relevantes
+
+# Regla 1
+
+**{grupo_edad=12} ⇒ {edad=999}**\
+- **Confianza:** 1.00\
+- **Soporte:** 72%\
+- **Lift:** 1.37
+
+**Interpretación:**\
+El 100% de las observaciones clasificadas en el grupo_edad=12 también presentan edad=999. Esto indica que este grupo está directamente asociado a los casos donde la edad no fue registrada.
+
+\
+Refleja un vacío de información en los registros de edad, probablemente por errores en la recolección o falta de datos.
+
+# Regla 2
+
+**{sexo=1, grupo_edad=12} ⇒ {edad=999}**\
+- **Confianza:** 1.00\
+- **Soporte:** 36%\
+- **Lift:** 1.37
+
+**Interpretación:**\
+Todos los registros correspondientes a hombres (sexo=1) dentro del grupo_edad=12 también tienen edad desconocida (edad=999).\
+
+Los hombres son el grupo más afectado por la falta de registro de edad, lo cual podría indicar un sesgo en la captura de información o una menor disposición a declarar datos personales.
+
+# Regla 3
+
+**{grupo_edad=12, zona=99} ⇒ {edad=999}**\
+- **Confianza:** 1.00\
+- **Soporte:** 60%\
+- **Lift:** 1.37
+
+**Interpretación:**\
+Cuando la zona de ocurrencia también es desconocida (zona=99), los registros carecen de información sobre edad.\
+
+Existe una fuerte relación entre falta de datos geográficos y falta de información personal, lo que sugiere deficiencias en la documentación de denuncias incompletas.
+
+# Regla 4
+
+**{sexo=9} ⇒ {grupo_edad=12}**\
+- **Confianza:** 0.94\
+- **Soporte:** 24%\
+- **Lift:** 1.29
+
+**Interpretación:**\
+En el 94% de los casos en que no se conoce el sexo (sexo=9), también la edad es desconocida (grupo_edad=12).\
+
+Los registros con información anónima o incompleta tienden a ser consistentes: cuando falta un dato sensible (como el sexo), suele faltar también la edad.
+
+# Conclusión general del método FP-Growth
+
+El análisis mediante **FP-Growth** permitió descubrir **37 reglas de asociación** con soporte ≥ 20% y confianza ≥ 50%.
+
+\
+Las reglas más relevantes muestran **patrones de falta de información sistemática**, especialmente en variables personales como edad, sexo y zona.
+
+**Principales hallazgos:** - Existe una **correlación directa entre edad desconocida y grupo_edad=12**, evidenciando un error estructural en los registros. - Los **casos de hombres y zonas desconocidas** también se asocian con edad no declarada. - Los **registros incompletos o anónimos** tienden a compartir múltiples campos vacíos, lo que afecta la calidad de los análisis posteriores.
+
+## **Recomendación:** Fortalecer los mecanismos de recolección y validación de datos en los sistemas del Ministerio Público. La mejora en la calidad de los registros es fundamental para entender de manera más precisa las características de los sindicados y sus contextos.
+
+------------------------------------------------------------------------

@@ -7,6 +7,8 @@ output: pdf_document
 
 ### Procedemos a la instalación de librerías:
 
+No me funcionó la libreria fim4r en windows tampoco en docker. Entonces use spark para realizar el método FP Growth :) 
+
 ```{r}
 install.packages("rmarkdown")
 install.packages("arules", type ="binary")

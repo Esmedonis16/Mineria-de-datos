@@ -1,0 +1,131 @@
+---
+title: "Proyecto, Árbol de Decisión"
+author: "Linda Morales"
+date: "2025-12-04"
+output: html_document
+---
+
+ÁRBOL 1: Predecir grupo etario (grupo_edad)
+
+```{r}
+
+### Procedemos a la instalación de librerías:
+
+library(readxl)
+library(dplyr)
+
+
+### Leemos todos los documentos, desde el año 2018 hasta el 2024
+
+dt2018 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/2-sindicados-mp-2018.xlsx")
+dt2019 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/2-sindicados-mp-2019.xlsx")
+dt2020 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/2-sindicados-mp-2020.xlsx")
+dt2021 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/2-sindicados-mp-2021.xlsx")
+dt2022 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/2-sindicados-mp-2022.xlsx")
+dt2023 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/mp-sindicados-2023.xlsx")
+dt2024 <- readxl::read_excel("/home/linda/Documentos/Linux/Mineria-de-datos/base-de-datos-mp-sindicados-2024.xlsx")
+
+### Revisamos los nombres de las columnas
+
+colnames(dt2018)
+colnames(dt2019)
+colnames(dt2020)
+colnames(dt2021)
+colnames(dt2022)
+colnames(dt2023)
+colnames(dt2024)
+
+### Renombramos y seleccionamos solo las columnas comunes: Alineamiento de columnas, ya que no son iguales en todos los años las estandarizamos:
+
+
+
+estandarizar <- function(df, sexo, edad, grupo_edad, depto, zona, delito) {
+  names(df)[names(df) == sexo] <- "sexo"
+  names(df)[names(df) == edad] <- "edad"
+  names(df)[names(df) == grupo_edad] <- "grupo_edad"
+  names(df)[names(df) == depto] <- "depto"
+  names(df)[names(df) == zona] <- "zona"
+  names(df)[names(df) == delito] <- "delito"
+  
+  df <- df[, c("sexo", "edad", "grupo_edad", "depto", "zona", "delito")]
+  return(df)
+}
+
+
+
+dt2024 <- estandarizar(dt2024, "sexo_sindicados", "edad_sind", "g_edad_60ymas", "depto_ocu_hecho", "zona_ocu_hecho", "principales_delitos")
+dt2023 <- estandarizar(dt2023, "sexo_per", "edad_sind", "g_edad_60ymas", "depto_ocu_hecho", "zona_ocu_hecho", "principales_delitos")
+dt2022 <- estandarizar(dt2022, "sexo_sindicados", "edad_sind", "g_edad_60ymas", "depto_ocu_hecho", "zona_ocu_hecho", "delito_com")
+dt2021 <- estandarizar(dt2021, "sexo_sindicados", "edad_sind", "g_edad_60ymas", "depto_ocu_hecho", "zona_ocu_hecho", "delito_com")
+dt2020 <- estandarizar(dt2020, "sexo_sindicados", "edad_sind", "g_edad_60ymás", "depto_ocu_hecho", "zona_ocu_hecho", "delito_cod")
+dt2019 <- estandarizar(dt2019, "sexo_sindicados", "edad_sind", "g_edad_60ymás", "depto_ocu", "zona_ocu", "delito_com")
+dt2018 <- estandarizar(dt2018, "sexo_sindicados", "edad_per", "g_edad_60ymas", "depto_ocu", "zona_ocu", "delito_com")
+
+
+
+### Unificamos todos los dataset:
+
+datos <- bind_rows(dt2018, dt2019, dt2020, dt2021, dt2022, dt2023, dt2024)
+
+```
+
+```{r}
+# Cargamos las librerías necesarias
+library(rpart)
+library(rpart.plot)
+
+# Convertir grupo_edad a factor (es la variable a predecir)
+datos$grupo_edad <- as.factor(datos$grupo_edad)
+
+# Selección de variables relevantes
+modelo1 <- rpart(grupo_edad 
+                 ~ edad 
+                 + sexo 
+                 + delito 
+                 + zona 
+                 + depto,
+                 data = datos, 
+                 method = "class",
+                 control = rpart.control(maxdepth = 4))
+
+# Graficar el árbol
+rpart.plot(modelo1, cex = 0.8, tweak = 1.1,
+           type = 2, extra = 2, under = TRUE,
+           fallen.leaves = TRUE, box.palette = "GnBu",
+           main = "Árbol de decisión para predecir grupo etario")
+
+```
+
+```{r}
+# Crear situación simulada
+persona1 <- data.frame(
+  edad = 35,
+  sexo = 1,
+  delito = 1,
+  zona = 11,
+  depto = 1
+)
+
+# Predecir grupo etario
+pred1 <- predict(modelo1, persona1, type = "prob")
+pred1
+
+```
+
+### Interpretación del modelo y sus predicciones
+
+El modelo de árbol de decisión predice la variable `grupo_edad` en base a características como edad, sexo, tipo de delito, zona y departamento. En una simulación con una persona de 35 años, sexo masculino, ubicada en el departamento de Guatemala (1), zona 11, y relacionada con el delito 1 (Abandono por estado afectivo), el modelo predijo con **100% de probabilidad que pertenece al grupo etario 6**.
+
+#### Significado:
+
+-   El árbol identifica **edad** como la variable principal, lo cual es coherente, ya que está directamente relacionada con el grupo etario.
+
+-   La combinación de variables (`delito = 1`, `zona = 11`, `depto = 1`) lleva al modelo a una predicción clara y segura, indicando un patrón fuerte en los datos históricos.
+
+#### Relevancia:
+
+-   Este resultado muestra que el modelo es capaz de identificar **perfiles característicos** de ciertos grupos etarios, lo que puede servir para **imputar valores faltantes**, especialmente donde `grupo_edad` está ausente pero hay datos disponibles de edad, delito, etc.
+
+-   Además, valida hallazgos previos del análisis con Apriori y FP-Growth, y se alinea con los clústeres identificados.
+
+-   Finalmente, aporta información útil para el **diseño de políticas públicas**, permitiendo focalizar recursos en grupos o zonas más vulnerables según patrones delictivos y edad.

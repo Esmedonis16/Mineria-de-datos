@@ -1,0 +1,212 @@
+---
+title: "Predicción por medio de bosques aleatorios"
+author: "Linda Morales"
+date: "2025-12-05"
+output: html_document
+---
+
+## Introducción
+
+En este proyecto se aplica el algoritmo **Random Forest** para predecir variables clave relacionadas con hechos delictivos ocurridos en Guatemala entre 2018 y 2024. Se utilizaron datos públicos del Ministerio Público, previamente tratados en la Parte 1 del proyecto. Las variables objetivo seleccionadas son `delito`, `zona` y `grupo_edad`.
+
+Este enfoque permite modelar relaciones no lineales entre variables y obtener predicciones más robustas que las de un árbol de decisión individual.
+
+```{r}
+library(randomForest)
+library(readxl)
+library(dplyr)
+
+# Carga de todos los datos (ya estandarizados)
+datos <- bind_rows(dt2018, dt2019, dt2020, dt2021, dt2022, dt2023, dt2024)
+
+# Seleccionar variables relevantes
+df <- datos[, c("delito", "sexo", "edad", "grupo_edad", "zona", "depto")]
+df <- na.omit(df)
+df$delito <- as.factor(df$delito)
+
+```
+
+## Entranando modelo
+
+```{r}
+set.seed(123)
+df_small <- df[sample(1:nrow(df), size = 0.10 * nrow(df)), ]
+
+tabla <- table(df_small$delito)
+
+set.seed(123)
+
+# Crear un subconjunto del 10%
+df_small <- df[sample(1:nrow(df), size = 0.10 * nrow(df)), ]
+
+# Asegurar que delito sea factor
+df_small$delito <- as.factor(df_small$delito)
+
+# Crear tabla de frecuencias (aquí estaba tu error)
+tabla <- table(df_small$delito)
+
+# Filtrar clases con al menos 50 casos
+clases_validas <- names(tabla[tabla >= 50])
+
+df_small <- df_small[df_small$delito %in% clases_validas, ]
+
+# Remover niveles vacíos
+df_small$delito <- droplevels(df_small$delito)
+
+# Verificación
+table(df_small$delito)
+
+```
+
+```{r}
+library(randomForest)
+
+set.seed(123)
+
+# Dividir train/test
+index <- sample(1:nrow(df_small), 0.8 * nrow(df_small))
+train <- df_small[index, ]
+test  <- df_small[-index, ]
+
+# Entrenar el modelo sin que explote
+modelo_rf_delito <- randomForest(
+  delito ~ sexo + edad + grupo_edad + zona + depto,
+  data = train,
+  ntree = 200,
+  mtry = 4
+)
+
+modelo_rf_delito
+
+```
+
+## Predicciones
+
+```{r}
+# Escenario 1: Hombre joven en zona urbana
+persona1 <- data.frame(
+  sexo = 1,
+  edad = 22,
+  grupo_edad = 3,
+  zona = 11,
+  depto = 1
+)
+
+predict(modelo_rf_delito, persona1, type = "prob")
+
+```
+
+```{r}
+# Escenario 2: Mujer adulta en el interior del país
+persona2 <- data.frame(
+  sexo = 2,
+  edad = 35,
+  grupo_edad = 6,
+  zona = 2,
+  depto = 5
+)
+
+predict(modelo_rf_delito, persona2, type = "prob")
+S
+```
+
+```{r}
+# Escenario 3: Hombre mayor asociado a delito grave
+persona3 <- data.frame(
+  sexo = 1,
+  edad = 60,
+  grupo_edad = 9,
+  zona = 1,
+  depto = 10
+)
+
+predict(modelo_rf_delito, persona3, type = "prob")
+
+```
+
+```{r}
+plot(modelo_rf_delito, main = "Error del Modelo Random Forest - Predicción de Delito")
+
+```
+
+## **Significado de las predicciones del modelo**
+
+El modelo Random Forest fue entrenado para predecir el tipo de **delito** utilizando variables sociodemográficas como sexo, edad, grupo etario, zona y departamento.\
+
+Dado que la variable *delito* posee muchas clases distintas y distribuciones muy desbalanceadas, el modelo presenta un error OOB elevado. Sin embargo, esto no invalida su utilidad en el proyecto: Random Forest permite **detectar patrones complejos y no lineales** en grandes bases de datos.
+
+A continuación se interpretan las predicciones de los tres escenarios simulados:
+
+## **Escenario 1: Hombre joven en zona urbana**
+
+-   **Perfil:** Hombre, 22 años, grupo etario joven (3), zona 11 – Guatemala.
+
+-   **Resultado del modelo:** Distribución dispersa en múltiples delitos, pero con mayor probabilidad en las clases más frecuentes del dataset.
+
+I**nterpretación:**
+
+El modelo considera que personas jóvenes, de sexo masculino y residentes en zonas urbanas del departamento de Guatemala presentan patrones asociados a una variedad de delitos comunes, pero no muestra una clase claramente dominante.\
+
+Esto indica **alta variabilidad delictiva en población joven urbana**, un patrón que coincide con los hallazgos obtenidos mediante FP-Growth y Apriori.
+
+## **Escenario 2: Mujer adulta en el interior del país**
+
+-   **Perfil:** Mujer, 35 años, grupo etario 6, zona 2, depto 5.
+
+-   **Resultado:** Aumenta la probabilidad en delitos menos urbanos y más vinculados con dinámicas familiares o comunitarias.
+
+**Interpretación:**
+
+El modelo reconoce que las mujeres adultas del interior presentan un patrón distinto al observado en el departamento central. Su perfil se asocia más a **delitos de convivencia**, lo cual coincide con patrones identificados previamente en la Parte 1.\
+
+Este comportamiento del modelo es relevante porque evidencia **diferencias territoriales y demográficas** en la dinámica delictiva.
+
+## **Escenario 3: Hombre mayor asociado a delito grave**
+
+-   **Perfil:** Hombre, 60 años, grupo etario 9, zona 1, depto 10.
+
+-   **Resultado:** Incremento de probabilidad en delitos más graves o de naturaleza menos frecuente.
+
+**Interpretación:**
+
+El modelo identifica que hombres mayores están estadísticamente menos involucrados en delitos comunes y muestran mayor probabilidad —aunque igualmente baja— hacia delitos específicos.\
+
+La mayor concentración en clases menos frecuentes indica que el modelo **diferencia perfiles etarios avanzados**, vinculándolos con patrones delictivos particulares.
+
+# **Relevancia del modelo Random Forest**
+
+### 1. **Permite trabajar con una variable altamente desbalanceada**
+
+El delito tiene muchas clases y el algoritmo puede manejar esa complejidad mejor que un árbol simple.
+
+### 2. **Identifica relaciones no lineales**
+
+La combinación entre edad, zona y departamento afecta la predicción de manera conjunta, algo que no se vería con métodos más simples.
+
+### 3. **Complementa los hallazgos de FP-Growth, Apriori y K-means**
+
+-   Apriori mostró asociaciones entre ciertos delitos y edades específicas.
+
+-   Random Forest confirma esa estructura al asignar más probabilidad a esos mismos delitos según el perfil.
+
+-   K-means encontró agrupaciones por edad y zona; RF también distingue entre zonas urbanas e interior.
+
+### 4. **Sirve como herramienta predictiva en políticas públicas**
+
+Aunque la precisión no es alta —por la complejidad del fenómeno delictivo—, el modelo ayuda a:
+
+-   entender **qué variables influyen más**,
+
+-   predecir delitos probables en ausencia de datos,
+
+-   priorizar zonas y grupos etarios en prevención.
+
+# Interpretación del gráfico del Random Forest
+
+El gráfico muestra la evolución del error del modelo conforme se agregan árboles. Se observa:
+
+-   **El error se estabiliza rápidamente**, lo que indica que el modelo converge.
+
+-   Las curvas superiores muestran errores altos por la cantidad de clases.
+
+-   La curva negra (error OOB general) se mantiene estable, lo que confirma que el modelo **no está sobreajustado**, solo enfrenta un problema complejo de clasificación.
